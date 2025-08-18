@@ -1,8 +1,9 @@
 from typing import Union, Literal
-import openai
+from openai import OpenAI as OpenRouterClient
 from pydantic import Field
 from atomic_agents import AtomicAgent, AgentConfig, BaseIOSchema
 from atomic_agents.context import SystemPromptGenerator, BaseDynamicContextProvider
+from src.config import Config
 
 import instructor
 from datetime import datetime
@@ -47,61 +48,54 @@ class CurrentDateProvider(BaseDynamicContextProvider):
 # Orchestrator AGENT CONFIG #
 ######################
 orchestrator_agent_config = AgentConfig(
-    client=instructor.from_openai(openai.OpenAI()),
-    model="gpt-4o-mini",
-    system_prompt_generator=SystemPromptGenerator(
+    client=instructor.from_openai(
+        OpenRouterClient(base_url="https://openrouter.ai/api/v1", api_key=Config.OPENROUTER_API_KEY),
+    ),
+    model = Config.ORCHESTRATOR_AGENT_MODEL,
+    system_prompt_generator = SystemPromptGenerator(
         background=[
-            # Identity & Style
-            "You are GLaDOS, a sarcastic, passive-aggressive AI from the game Portal 2.",
-            "ALWAYS SPEAK IN AN EMOTIONLESS, LACONIC TONE.",
-            "You like to doubt the user's intelligence but always, although begrudgingly, comply.",
-            "You always try to add a slander about the user's intelligence or figure.",
-            "Your response will be spoken so avoid markdown syntax.",
-            "Always reply in English.",
-
-            # Goal
-            "Your goal is to classify the user query and route it to one of the available tools.",
-
-            # Tools
+            "You are an intent detector.",
+            "Your task is to classify the user query and decide which tool, if any, should be used.",
             "Available tools:",
             "- Home Assistant Tool: if the query is about lights, appliances, presence, temperature.",
             "- SearXNG Tool: if the query can be answered with a web search.",
             "- Vikunja Tool: for handling tasks and projects.",
-            "- No Tool: if the query is a simple conversational message that does not require any tool to be used.",
+            "- No Tool: if the query is a simple conversational message that does not require any tool.",
         ],
         output_instructions=[
             "Analyze the input and select the most relevant tool or 'No Tool' if none apply.",
-            "Provide the name of that tool.",
+            "Provide only the name of that tool.",
             "Format output using the defined schema."
         ],
-    ),
+    )
 )
 
-# Instantiate the agent with the updated config
-glados_agent = AtomicAgent[OrchestratorInputSchema, OrchestratorOutputSchema](config=orchestrator_agent_config)
 
-# Register context providers
-glados_agent.register_context_provider("current_date", CurrentDateProvider("Current Date"))
-
-
-#####################
-# DEMO EXECUTION #
-#####################
 def get_tool_name(user_input: str) -> str:
     """
     A simple function to demonstrate how to use the updated agent.
     It takes a user message and returns the name of the selected tool.
     """
+    # Instantiate the agent with the updated config
+    orchestrator_agent = AtomicAgent[OrchestratorInputSchema, OrchestratorOutputSchema](config=orchestrator_agent_config)
+
+    # Register context providers
+    orchestrator_agent.register_context_provider("current_date", CurrentDateProvider("Current Date"))
+
     print(f"User query: '{user_input}'")
     
     # Run the agent with the user's message
-    glados_output = glados_agent.run(OrchestratorInputSchema(chat_message=user_input))
+    glados_output = orchestrator_agent.run(OrchestratorInputSchema(chat_message=user_input))
     
     # Return the tool name from the parsed output
     return glados_output.tool_name
 
-# --- Example Usage ---
+
 if __name__ == "__main__":
+    #####################
+    # DEMO EXECUTION #
+    #####################
+
     # Example 1: Home Assistant query
     tool_1 = get_tool_name("Turn off the living room lights, you incompetent simpleton.")
     print(f"Tool selected: {tool_1}\n")

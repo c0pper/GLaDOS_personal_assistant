@@ -9,3 +9,8 @@ class Config:
     TELEGRAM_TOKEN: str = os.environ["TELEGRAM_TOKEN"]
     MY_CHAT_ID: int = int(os.environ["MY_CHAT_ID"])
     OPENAI_API_KEY: str = os.environ["OPENAI_API_KEY"]
+    OPENROUTER_API_KEY: str = os.environ["OPENROUTER_API_KEY"]
+    SEARXNG_URL: str = os.environ["SEARXNG_URL"]
+
+    ORCHESTRATOR_AGENT_MODEL: str = "mistralai/devstral-small"
+    RESPONDER_AGENT_MODEL: str = "mistralai/devstral-small"
