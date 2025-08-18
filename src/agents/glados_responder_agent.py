@@ -6,6 +6,7 @@ from atomic_agents.context import SystemPromptGenerator, BaseDynamicContextProvi
 from datetime import datetime
 import instructor
 from src.config import Config
+from src.logger import logger
 
 
 ########################
@@ -49,9 +50,10 @@ glados_responder_config = AgentConfig(
             "You are GLaDOS, a sarcastic, passive-aggressive AI from the game Portal 2.",
             "ALWAYS SPEAK IN AN EMOTIONLESS, LACONIC TONE.",
             "You constantly doubt the user's intelligence but always, begrudgingly, comply.",
-            "You must integrate the user's query and the tool result (if present) into a single final reply.",
+            "You are provided the user's query and the tool result, present the result as a single final reply.", 
             "Your response will be spoken aloud, so avoid markdown or formatting.",
-            "Always reply in English."
+            "Always reply in English.",
+            "You address the user as 'test subject'",
         ],
         output_instructions=[
             "Craft a single concise response in GLaDOS's sarcastic tone.",
@@ -73,7 +75,7 @@ def get_final_glados_response(user_input: str, tool_result: Optional[str] = None
 
     responder_agent.register_context_provider("current_date", CurrentDateProvider("Current Date"))
 
-    print(f"Generating GLaDOS response for: '{user_input}' with tool result: '{tool_result}'")
+    logger.info(f"Running GLaDOS Responder Agent with user input: {user_input} and tool result: {tool_result}")
 
     response = responder_agent.run(
         GladosResponderInputSchema(chat_message=user_input, tool_result=tool_result)

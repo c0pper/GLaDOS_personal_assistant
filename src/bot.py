@@ -9,6 +9,7 @@ from src.transcriber import OpenAITranscriber
 from agents.orchestrator_agent import get_tool_name
 from src.tools.searxng_search.tool.searxng_search import SearXNGSearchTool, SearXNGSearchToolConfig, SearXNGSearchToolInputSchema, SearXNGSearchToolOutputSchema
 from src.agents.glados_responder_agent import get_final_glados_response
+from src.agents.vikunja_agent import process_vikunja_query
 
 
 console = Console()
@@ -77,9 +78,9 @@ class TelegramBot:
                     await update.message.reply_text(final_response)
 
                 elif tool_name == "Vikunja Tool":
-                    await update.message.reply_text("Routing to Vikunja Tool…")
-                    # result = call_vikunja(self.user_message_text)
-                    # await update.message.reply_text(result)
+                    output = process_vikunja_query(self.user_message_text)
+                    final_response = get_final_glados_response(self.user_message_text, output)
+                    await update.message.reply_text(final_response)
 
                 elif tool_name == "No Tool":
                     await update.message.reply_text("No tool required, handling as plain conversation.")

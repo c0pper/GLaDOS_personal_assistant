@@ -13,4 +13,8 @@ class Config:
     SEARXNG_URL: str = os.environ["SEARXNG_URL"]
 
     ORCHESTRATOR_AGENT_MODEL: str = "mistralai/devstral-small"
-    RESPONDER_AGENT_MODEL: str = "mistralai/devstral-small"
+    RESPONDER_AGENT_MODEL: str = "openai/gpt-4o-mini"
+
+    VIKUNJA_BASE_URL: str = os.environ["VIKUNJA_BASE_URL"]
+    VIKUNJA_TOKEN: str = os.environ["VIKUNJA_TOKEN"]
+    VIKUNJA_AGENT_MODEL: str = "google/gemini-2.0-flash-001"
