@@ -1,6 +1,8 @@
 from datetime import time, timezone, timedelta
 import json
 from atomic_agents import AtomicAgent
+import requests
+import tempfile
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, Defaults
 from src.config import Config
@@ -74,8 +76,6 @@ class TelegramBot:
                         GladosResponderInputSchema(chat_message=self.user_message_text, tool_result=tool_output)
                     ).final_response
 
-                    await update.message.reply_text(final_response)
-
                 elif tool_name == "SearXNG Tool":
                     search_tool_instance = SearXNGSearchTool(
                         config=SearXNGSearchToolConfig()
@@ -90,27 +90,26 @@ class TelegramBot:
                     final_response = self.respoder_agent.run(
                         GladosResponderInputSchema(chat_message=self.user_message_text, tool_result=formatted_results)
                     ).final_response
-                    await update.message.reply_text(final_response)
 
                 elif tool_name == "Vikunja Tool":
                     output = process_vikunja_query(self.user_message_text)
                     final_response = self.respoder_agent.run(
                         GladosResponderInputSchema(chat_message=self.user_message_text, tool_result=output)
                     ).final_response
-                    await update.message.reply_text(final_response)
 
                 elif tool_name == "No Tool":
                     final_response = self.respoder_agent.run(
                         GladosResponderInputSchema(chat_message=self.user_message_text, tool_result=None)
                     ).final_response
-                    await update.message.reply_text(final_response)
 
                 else:
                     logger.warning(f"Unknown tool detected: {tool_name}")
                     final_response = self.respoder_agent.run(
                         GladosResponderInputSchema(chat_message=self.user_message_text, tool_result=f"Unknown tool detected: {tool_name}")
                     ).final_response
-                    await update.message.reply_text(final_response)
+
+                await update.message.reply_text(final_response)
+                await self.send_voice_response(update, context, final_response)
 
 
             else:
@@ -132,26 +131,75 @@ class TelegramBot:
         else:
             await update.message.reply_text("I received a message, but it wasn't a voice message")
 
+    async def send_voice_response(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+        """Sends a voice response to the user."""
+        url = f"{Config.HOME_ASSISTANT_BASE_URL}/api/tts_get_url"
+
+        payload = {
+            "engine_id": "tts.piper",
+            "message": text,
+            "options": {
+                "voice": "glados"
+            }
+        }
+
+        headers = {
+            "Authorization": f"Bearer {Config.HOME_ASSISTNAT_TOKEN}"
+        }
+
+        response_from_tts_service = requests.post(url, json=payload, headers=headers)
+
+        if response_from_tts_service.status_code in (200, 201):
+            tts_mp3_url = response_from_tts_service.json().get("url")
+            logger.info(f"Successfully invoked TTS service. MP3 URL obtained: {tts_mp3_url}")
+
+            if tts_mp3_url:
+                try:
+                    response_mp3_content = requests.get(tts_mp3_url, stream=True)
+                    response_mp3_content.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
+
+                    # 'delete=True' (default) ensures the file is automatically removed when closed
+                    # 'suffix=".mp3"' helps in identifying the file type
+                    with tempfile.NamedTemporaryFile(delete=True, suffix=".mp3") as temp_file:
+                        # Write the downloaded content in chunks to the temporary file
+                        for chunk in response_mp3_content.iter_content(chunk_size=8192):
+                            temp_file.write(chunk)
+                        temp_file.flush() # Ensure all data is written to the underlying file system
+                        temp_file.seek(0) # Rewind the file pointer to the beginning for reading by telegram-bot
+
+                        logger.info(f"Downloaded MP3 content to temporary file: {temp_file.name}")
+
+                        # Step 4: Pass the temporary file object to reply_voice
+                        await update.message.reply_voice(voice=temp_file)
+                        logger.info("Voice message successfully sent from temporary file.")
+
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"Failed to download MP3 from {tts_mp3_url}: {e}")
+                    await update.message.reply_text("Sorry, I encountered an error while retrieving the voice message.")
+                    return None
+                except Exception as e:
+                    logger.error(f"An unexpected error occurred during voice file processing: {e}")
+                    await update.message.reply_text("An unexpected error occurred while sending the voice message.")
+                    return None
+            else:
+                logger.error("No valid MP3 URL was returned by the TTS service.")
+                await update.message.reply_text("Sorry, I couldn't get a valid voice message URL.")
+                return None
+        else:
+            logger.error(f"Failed to invoke TTS service: {response_from_tts_service.status_code} - {response_from_tts_service.text}")
+            await update.message.reply_text("Sorry, the voice generation service is currently unavailable.")
+            return None
+
+
     async def send_scheduled_message(self, context: ContextTypes.DEFAULT_TYPE):
         """Send a scheduled message to the configured chat."""
         chat_id = Config.MY_CHAT_ID
         await context.bot.send_message(chat_id=chat_id, text="This is your scheduled message! ✅")
 
-    async def check_schedule(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Command to check the next trigger time of the daily job."""
-        if self.daily_job and self.daily_job.next_t:
-            # next_t is a datetime.datetime object
-            next_run_time = self.daily_job.next_t
-            # Format the datetime object for display, including timezone info
-            await update.message.reply_text(f"The daily message is scheduled to trigger next at: {next_run_time.strftime('%Y-%m-%d %H:%M:%S %Z%z')}")
-        else:
-            await update.message.reply_text("Daily job not found or not yet scheduled.")
-
     def setup_handlers(self):
         self.app.add_handler(CommandHandler("hello", self.hello))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.orchestrate_actions))
         self.app.add_handler(MessageHandler(filters.VOICE, self.handle_voice_message))
-        self.app.add_handler(CommandHandler("check_schedule", self.check_schedule))
         
         # Set up daily journal reminder
         self.daily_job = self.app.job_queue.run_daily( # Store the job object
