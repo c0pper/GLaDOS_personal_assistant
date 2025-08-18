@@ -4,6 +4,8 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Messa
 from src.config import Config
 from rich.console import Console
 from src.logger import logger
+from src.transcriber import OpenAITranscriber
+
 
 console = Console()
 
@@ -12,6 +14,8 @@ class TelegramBot:
     def __init__(self, token):
         # Initialize the application with the provided token
         self.app = ApplicationBuilder().token(token).build()
+        self.transcriber = OpenAITranscriber(Config.OPENAI_API_KEY)
+        self.user_message_text: str = ""
 
     def check_chat_id(self, chat_id):
         """
@@ -39,7 +43,7 @@ class TelegramBot:
             chat_id = update._effective_message.chat_id
             if self.check_chat_id(chat_id):
                 text = update.message.text
-                await update.message.reply_text(update.message.text)
+                self.user_message_text = text
 
 
             else:
@@ -52,10 +56,14 @@ class TelegramBot:
         """Responds to a voice message by echoing it back."""
         voice_file = update.message.voice
         if voice_file:
-            # You can send the voice file back using its file_id
-            await update.message.reply_voice(voice_file.file_id)
-            # Optionally, you can also send a text confirmation
-            await update.message.reply_text("I received your voice message!")
+            file_obj = await voice_file.get_file() # [3, 4]
+            voice_data_bytes = await file_obj.download_as_bytearray()
+
+            # Transcribe the voice message using OpenAI Whisper
+            transcribed_text = self.transcriber.transcribe(voice_data_bytes)
+            self.user_message_text = transcribed_text
+
+
         else:
             await update.message.reply_text("I received a message, but it wasn't a voice message")
 
