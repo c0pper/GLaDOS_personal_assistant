@@ -18,3 +18,7 @@ class Config:
     VIKUNJA_BASE_URL: str = os.environ["VIKUNJA_BASE_URL"]
     VIKUNJA_TOKEN: str = os.environ["VIKUNJA_TOKEN"]
     VIKUNJA_AGENT_MODEL: str = "google/gemini-2.0-flash-001"
+
+    HOME_ASSISTANT_AGENT_MODEL: str = "google/gemini-2.0-flash-001"
+    HOME_ASSISTNAT_TOKEN: str = os.environ["HOME_ASSISTANT_TOKEN"]
+    HOME_ASSISTANT_BASE_URL: str = os.environ["HOME_ASSISTANT_BASE_URL"]

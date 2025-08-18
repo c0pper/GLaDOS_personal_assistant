@@ -1,5 +1,6 @@
 from datetime import time, timezone, timedelta
 import json
+from atomic_agents import AtomicAgent
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, Defaults
 from src.config import Config
@@ -8,8 +9,9 @@ from src.logger import logger
 from src.transcriber import OpenAITranscriber
 from agents.orchestrator_agent import get_tool_name
 from src.tools.searxng_search.tool.searxng_search import SearXNGSearchTool, SearXNGSearchToolConfig, SearXNGSearchToolInputSchema, SearXNGSearchToolOutputSchema
-from src.agents.glados_responder_agent import get_final_glados_response
+from src.agents.glados_responder_agent import GladosResponderInputSchema, GladosResponderOutputSchema, glados_responder_config
 from src.agents.vikunja_agent import process_vikunja_query
+from src.agents.home_assistant_agent import HomeAssistantInputSchema, HomeAssistantOutputSchema, invoke_intent, home_assistant_agent_config, AvailableIntentsProvider
 
 
 console = Console()
@@ -23,6 +25,9 @@ class TelegramBot:
         self.transcriber = OpenAITranscriber(Config.OPENAI_API_KEY)
         self.user_message_text: str = ""
         self.daily_job = None # To store the job object
+        self.respoder_agent = AtomicAgent[GladosResponderInputSchema, GladosResponderOutputSchema](config=glados_responder_config)
+        self.home_assistant_agent = AtomicAgent[HomeAssistantInputSchema, HomeAssistantOutputSchema](config=home_assistant_agent_config)
+        self.home_assistant_agent.register_context_provider("available_intents", AvailableIntentsProvider("Available Intents"))
 
     def check_chat_id(self, chat_id):
         """
@@ -59,9 +64,17 @@ class TelegramBot:
 
                 # Handle each case
                 if tool_name == "Home Assistant Tool":
-                    # Example: turn on lights, check temperature, etc.
-                    await update.message.reply_text("Routing to Home Assistant Tool…")
-                    # call_home_assistant_tool(self.user_message_text)
+                    output = self.home_assistant_agent.run(
+                        HomeAssistantInputSchema(user_query=self.user_message_text)
+                    ).intent_name.name
+
+                    tool_output = invoke_intent(output)
+
+                    final_response = self.respoder_agent.run(
+                        GladosResponderInputSchema(chat_message=self.user_message_text, tool_result=tool_output)
+                    ).final_response
+
+                    await update.message.reply_text(final_response)
 
                 elif tool_name == "SearXNG Tool":
                     search_tool_instance = SearXNGSearchTool(
@@ -74,21 +87,30 @@ class TelegramBot:
                     output: SearXNGSearchToolOutputSchema = search_tool_instance.run(search_input)
                     formatted_results = await search_tool_instance.format_results(output.results)
 
-                    final_response = get_final_glados_response(self.user_message_text, formatted_results)
+                    final_response = self.respoder_agent.run(
+                        GladosResponderInputSchema(chat_message=self.user_message_text, tool_result=formatted_results)
+                    ).final_response
                     await update.message.reply_text(final_response)
 
                 elif tool_name == "Vikunja Tool":
                     output = process_vikunja_query(self.user_message_text)
-                    final_response = get_final_glados_response(self.user_message_text, output)
+                    final_response = self.respoder_agent.run(
+                        GladosResponderInputSchema(chat_message=self.user_message_text, tool_result=output)
+                    ).final_response
                     await update.message.reply_text(final_response)
 
                 elif tool_name == "No Tool":
-                    await update.message.reply_text("No tool required, handling as plain conversation.")
-                    # Could just echo back or do nothing
+                    final_response = self.respoder_agent.run(
+                        GladosResponderInputSchema(chat_message=self.user_message_text, tool_result=None)
+                    ).final_response
+                    await update.message.reply_text(final_response)
 
                 else:
-                    await update.message.reply_text("Unknown tool detected.")
-
+                    logger.warning(f"Unknown tool detected: {tool_name}")
+                    final_response = self.respoder_agent.run(
+                        GladosResponderInputSchema(chat_message=self.user_message_text, tool_result=f"Unknown tool detected: {tool_name}")
+                    ).final_response
+                    await update.message.reply_text(final_response)
 
 
             else:
@@ -96,7 +118,6 @@ class TelegramBot:
                 console.print(f"[bold red]Chat ID {chat_id} does not match the configured chat ID[/bold red]")
                 logger.warning(f"Chat ID {chat_id} does not match the configured chat ID")
 
-    # New handler function for voice messages
     async def handle_voice_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Responds to a voice message by echoing it back."""
         voice_file = update.message.voice
@@ -107,7 +128,6 @@ class TelegramBot:
             # Transcribe the voice message using OpenAI Whisper
             transcribed_text = self.transcriber.transcribe(voice_data_bytes)
             self.user_message_text = transcribed_text
-
 
         else:
             await update.message.reply_text("I received a message, but it wasn't a voice message")
@@ -133,6 +153,7 @@ class TelegramBot:
         self.app.add_handler(MessageHandler(filters.VOICE, self.handle_voice_message))
         self.app.add_handler(CommandHandler("check_schedule", self.check_schedule))
         
+        # Set up daily journal reminder
         self.daily_job = self.app.job_queue.run_daily( # Store the job object
             callback=self.send_scheduled_message,
             time=time(17, 11, 0),  # Set the time to 5:00 PM
@@ -143,8 +164,6 @@ class TelegramBot:
 
         console.print("[bold green]Handlers have been set up successfully![/bold green]")
         
-
-
     def run(self):
         # Run the bot using polling
         console.print("[bold green]Starting Telegram Bot...[/bold green]")

@@ -2,7 +2,7 @@ from typing import Optional
 from pydantic import Field
 from openai import OpenAI as OpenRouterClient
 from atomic_agents import AtomicAgent, AgentConfig, BaseIOSchema
-from atomic_agents.context import SystemPromptGenerator, BaseDynamicContextProvider
+from atomic_agents.context import SystemPromptGenerator, BaseDynamicContextProvider, ChatHistory
 from datetime import datetime
 import instructor
 from src.config import Config
@@ -44,7 +44,8 @@ glados_responder_config = AgentConfig(
     client=instructor.from_openai(
         OpenRouterClient(base_url="https://openrouter.ai/api/v1", api_key=Config.OPENROUTER_API_KEY),
     ),
-    model=Config.RESPONDER_AGENT_MODEL,  # <- separate model if you want
+    model=Config.RESPONDER_AGENT_MODEL,  
+    history=ChatHistory(max_messages=10),
     system_prompt_generator=SystemPromptGenerator(
         background=[
             "You are GLaDOS, a sarcastic, passive-aggressive AI from the game Portal 2.",
@@ -53,7 +54,7 @@ glados_responder_config = AgentConfig(
             "You are provided the user's query and the tool result, present the result as a single final reply.", 
             "Your response will be spoken aloud, so avoid markdown or formatting.",
             "Always reply in English.",
-            "You address the user as 'test subject'",
+            "You address the user as 'test subject', but do it only when necessary.",
         ],
         output_instructions=[
             "Craft a single concise response in GLaDOS's sarcastic tone.",
