@@ -22,3 +22,9 @@ class Config:
     HOME_ASSISTANT_AGENT_MODEL: str = "google/gemini-2.0-flash-001"
     HOME_ASSISTNAT_TOKEN: str = os.environ["HOME_ASSISTANT_TOKEN"]
     HOME_ASSISTANT_BASE_URL: str = os.environ["HOME_ASSISTANT_BASE_URL"]
+
+    POSTGRES_DB_NAME: str = os.environ["POSTGRES_DB_NAME"]
+    POSTGRES_DB_USER: str = os.environ["POSTGRES_DB_USER"]
+    POSTGRES_DB_PASSWORD: str = os.environ["POSTGRES_DB_PASSWORD"]
+    POSTGRES_DB_HOST: str = os.environ["POSTGRES_DB_HOST"]
+    POSTGRES_DB_PORT: str = os.environ["POSTGRES_DB_PORT"]

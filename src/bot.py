@@ -4,7 +4,7 @@ from atomic_agents import AtomicAgent
 import requests
 import tempfile
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, Defaults
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, Defaults, CallbackQueryHandler
 from src.config import Config
 from rich.console import Console
 from src.logger import logger
@@ -14,6 +14,8 @@ from src.tools.searxng_search.tool.searxng_search import SearXNGSearchTool, Sear
 from src.agents.glados_responder_agent import GladosResponderInputSchema, GladosResponderOutputSchema, glados_responder_config
 from src.agents.vikunja_agent import process_vikunja_query
 from src.agents.home_assistant_agent import HomeAssistantInputSchema, HomeAssistantOutputSchema, invoke_intent, home_assistant_agent_config, AvailableIntentsProvider
+from src.tools.journal.tool.journal import Journal
+from src.tools.journal.tool.postgres_db import PostgresDB
 
 
 console = Console()
@@ -30,6 +32,14 @@ class TelegramBot:
         self.respoder_agent = AtomicAgent[GladosResponderInputSchema, GladosResponderOutputSchema](config=glados_responder_config)
         self.home_assistant_agent = AtomicAgent[HomeAssistantInputSchema, HomeAssistantOutputSchema](config=home_assistant_agent_config)
         self.home_assistant_agent.register_context_provider("available_intents", AvailableIntentsProvider("Available Intents"))
+        self.journal_db = PostgresDB(
+            db_name=Config.POSTGRES_DB_NAME,
+            user=Config.POSTGRES_DB_USER,
+            password=Config.POSTGRES_DB_PASSWORD,
+            host=Config.POSTGRES_DB_HOST,
+            port=Config.POSTGRES_DB_PORT
+        )
+        self.journal_app = Journal(db=self.journal_db)
 
     def check_chat_id(self, chat_id):
         """
@@ -49,7 +59,6 @@ class TelegramBot:
         # Respond with a greeting message including the user's first name
         await update.message.reply_text(f'Hello {update.effective_user.first_name}')
 
-    # New handler function for text messages
     async def orchestrate_actions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Echoes the user's text message."""
         if update.message and update.message.text:
@@ -190,24 +199,32 @@ class TelegramBot:
             await update.message.reply_text("Sorry, the voice generation service is currently unavailable.")
             return None
 
-
-    async def send_scheduled_message(self, context: ContextTypes.DEFAULT_TYPE):
+    async def send_journal_reminder(self, context: ContextTypes.DEFAULT_TYPE):
         """Send a scheduled message to the configured chat."""
-        chat_id = Config.MY_CHAT_ID
-        await context.bot.send_message(chat_id=chat_id, text="This is your scheduled message! ✅")
+        await context.bot.send_message(chat_id=Config.MY_CHAT_ID, text="This is your scheduled message! ✅")
 
     def setup_handlers(self):
+        """Sets up and registers all the bot's handlers."""
+        # Journal-related handlers should be registered first because they are more specific.
+        self.app.add_handler(CommandHandler("journal", self.journal_app.handle_command))
+        self.app.add_handler(CallbackQueryHandler(self.journal_app.handle_callback_query))
+        
+        # This handler is now much more specific and won't conflict.
+        # It will only trigger for text messages that are also replies.
+        self.app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, self.journal_app.handle_message))
+
+        # Add your more general handlers after the specific ones
         self.app.add_handler(CommandHandler("hello", self.hello))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.orchestrate_actions))
         self.app.add_handler(MessageHandler(filters.VOICE, self.handle_voice_message))
         
         # Set up daily journal reminder
-        self.daily_job = self.app.job_queue.run_daily( # Store the job object
-            callback=self.send_scheduled_message,
-            time=time(17, 11, 0),  # Set the time to 5:00 PM
-            days=(0, 1, 2, 3, 4, 5, 6),  # Runs every day (Sunday=0, Saturday=6)
-            chat_id=Config.MY_CHAT_ID,  # Associate the job with a specific chat ID
-            name="daily_scheduled_message"  # Give your job a unique name
+        self.daily_job = self.app.job_queue.run_daily(
+            callback=self.send_journal_reminder,
+            time=time(17, 11, 0),
+            days=(0, 1, 2, 3, 4, 5, 6),
+            chat_id=Config.MY_CHAT_ID,
+            name="daily_journal_reminder"
         )
 
         console.print("[bold green]Handlers have been set up successfully![/bold green]")
