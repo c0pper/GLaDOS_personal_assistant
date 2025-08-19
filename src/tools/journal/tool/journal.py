@@ -4,6 +4,7 @@ import os
 from typing import Any, Dict
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, Defaults
+from src.config import Config
 from src.logger import logger
 from src.tools.journal.tool.postgres_db import PostgresDB
 
@@ -33,10 +34,9 @@ class Journal:
         
         return InlineKeyboardMarkup(people_rows)
 
-    async def handle_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_command(self, context: ContextTypes.DEFAULT_TYPE):
         """Handles the initial /journal command."""
-        user_id = update.effective_user.id
-        chat_id = update.effective_chat.id
+        chat_id = Config.MY_CHAT_ID
         journal_id = datetime.now().strftime('%d%m%Y')
 
         # Check if today's entry already exists
