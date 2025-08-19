@@ -17,19 +17,19 @@ class Journal:
         self.db = db
         self.journal_table = "journal"
         self.people = self.db.get_all_people()
-        self.people_keyboard = self.get_people_keyboard()
 
-    def get_people_keyboard(self) -> InlineKeyboardMarkup:
-        """Generates an inline keyboard for selecting people."""
+    def get_people_keyboard_with_id(self, journal_id: str) -> InlineKeyboardMarkup:
+        """Generates an inline keyboard for selecting people, including the journal ID."""
         people_rows = []
         max_buttons_per_row = 4
         for i in range(0, len(self.people), max_buttons_per_row):
             row_slice = self.people[i:i + max_buttons_per_row]
-            buttons = [InlineKeyboardButton(person.title(), callback_data=person) for person in row_slice]
+            # Include the journal ID in the callback data
+            buttons = [InlineKeyboardButton(person.title(), callback_data=f"person;{person};{journal_id}") for person in row_slice]
             people_rows.append(buttons)
         
-        # Add the 'Done' button as a separate row at the end
-        people_rows.append([InlineKeyboardButton("Done", callback_data="done_people")])
+        # Add the 'Done' button with the journal ID
+        people_rows.append([InlineKeyboardButton("Done", callback_data=f"done_people;none;{journal_id}")])
         
         return InlineKeyboardMarkup(people_rows)
 
@@ -54,11 +54,11 @@ class Journal:
         # Ask the user for their mood with inline buttons
         inline_keyboard = [
             [
-                {"text": "😭", "callback_data": "1"},
-                {"text": "😢", "callback_data": "2"},
-                {"text": "😐", "callback_data": "3"},
-                {"text": "🙂", "callback_data": "4"},
-                {"text": "🤩", "callback_data": "5"}
+                {"text": "😭", "callback_data": f"mood;1;{journal_id}"},
+                {"text": "😢", "callback_data": f"mood;2;{journal_id}"},
+                {"text": "😐", "callback_data": f"mood;3;{journal_id}"},
+                {"text": "🙂", "callback_data": f"mood;4;{journal_id}"},
+                {"text": "🤩", "callback_data": f"mood;5;{journal_id}"}
             ]
         ]
         # Using reply_markup with a list of lists of InlineKeyboardButton objects
@@ -71,29 +71,35 @@ class Journal:
         query = update.callback_query
         chat_id = query.message.chat_id
         message_id = query.message.message_id
-        callback_data = query.data
-        journal_id = datetime.now().strftime('%d%m%Y')
+        # Split the callback data to get the type and the journal ID
+        callback_parts = query.data.split(';')
+        data_type = callback_parts[0]
+        callback_value = callback_parts[1]
+        journal_id = callback_parts[2]
 
         # Answer the callback query to remove the loading state on the button
         await query.answer()
 
         # Logic based on the n8n flow's "Switch1" node
-        if callback_data.isdigit():
+        if data_type == 'mood':
             # Mood selection: update mood column and proceed to ask about people
-            mood_value = int(callback_data)
+            mood_value = int(callback_value)
             self.db.update_row(self.journal_table, journal_id, {'mood': mood_value})
             
+            # The people keyboard also needs to send the journal_id
+            updated_people_keyboard = self.get_people_keyboard_with_id(journal_id)
+
             await context.bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
                 text="Who were you with?",
-                reply_markup=self.people_keyboard  # Get the people selection keyboard
+                reply_markup=updated_people_keyboard  # Get the people selection keyboard
             )
 
-        elif callback_data == 'done_people':
+        elif data_type == 'done_people':
             # People selection is complete, ask for notes
             notes_keyboard = [
-                [InlineKeyboardButton("No notes", callback_data="no_notes")]
+                [InlineKeyboardButton("No notes", callback_data=f"no_notes;none;{journal_id}")]
             ]
             reply_markup = InlineKeyboardMarkup(notes_keyboard)
             
@@ -104,7 +110,7 @@ class Journal:
                 reply_markup=reply_markup
             )
 
-        elif callback_data == 'no_notes':
+        elif data_type == 'no_notes':
             # Final flow: end the conversation
             await context.bot.edit_message_text(
                 chat_id=chat_id,
@@ -112,7 +118,7 @@ class Journal:
                 text="Journal entry saved. Have a great day!"
             )
 
-        elif callback_data.lower() in self.people:
+        elif data_type == 'person':
             # Add person to the people column
             current_entry = self.db.select_row_by_id(self.journal_table, journal_id)
             current_people_str = current_entry.get('people', '')
@@ -120,14 +126,14 @@ class Journal:
             current_people_list = [p.strip() for p in current_people_str.split('; ') if p.strip()]
     
             # Check if the person is already in the list.
-            if callback_data in current_people_list:
+            if callback_value in current_people_list:
                 # If the person is found, remove them.
-                current_people_list.remove(callback_data)
-                logger.info(f"Removed {callback_data} from the list.")
+                current_people_list.remove(callback_value)
+                logger.info(f"Removed {callback_value} from the list.")
             else:
                 # If the person is not found, add them to the list.
-                current_people_list.append(callback_data)
-                logger.info(f"Added {callback_data} to the list.")
+                current_people_list.append(callback_value)
+                logger.info(f"Added {callback_value} to the list.")
 
             # Join the updated list back into a semicolon-separated string.
             new_people_str = '; '.join(current_people_list)
@@ -143,12 +149,15 @@ class Journal:
             else:
                 new_message_text = "Who were you with?"
             
+            # The people keyboard also needs to send the journal_id
+            updated_people_keyboard = self.get_people_keyboard_with_id(journal_id)
+
             # Edit the message to show the updated selection and the keyboard.
             await context.bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
                 text=new_message_text,
-                reply_markup=self.people_keyboard
+                reply_markup=updated_people_keyboard
             )
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
