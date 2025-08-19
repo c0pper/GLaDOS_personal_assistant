@@ -15,4 +15,4 @@ ENV PYTHONPATH=/app
 
 # Define an entrypoint to run the bot when the container starts
 # The command runs the bot.py script.
-CMD ["python", "main.py"]
+CMD ["python", "src/main.py"]
