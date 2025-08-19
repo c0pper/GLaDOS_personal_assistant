@@ -40,16 +40,16 @@ class Journal:
         journal_id = datetime.now().strftime('%d%m%Y')
 
         # Check if today's entry already exists
-        # today_entry = self.db.select_row_by_id(self.journal_table, journal_id)
-        # if not today_entry:
-        # Initialize a new journal entry for the day
-        self.db.insert_row(self.journal_table, {
-            'id': journal_id,
-            'date': datetime.now().isoformat(),
-            'mood': 0,
-            'people': '',
-            'notes': ''
-        })
+        today_entry = self.db.select_row_by_id(self.journal_table, journal_id)
+        if not today_entry:
+            # Initialize a new journal entry for the day
+            self.db.insert_row(self.journal_table, {
+                'id': journal_id,
+                'date': datetime.now().isoformat(),
+                'mood': 0,
+                'people': '',
+                'notes': ''
+            })
 
         # Ask the user for their mood with inline buttons
         inline_keyboard = [
