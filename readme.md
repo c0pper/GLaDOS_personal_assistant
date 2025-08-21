@@ -1,1 +1,1 @@
-docker stop glados-personal-assistant && docker rm glados-personal-assistant && docker build -t glados-personal-assistant . && docker run -d --name glados-personal-assistant --env-file .env glados-personal-assistant 
+docker stop glados-personal-assistant && docker rm glados-personal-assistant && docker build -t glados-personal-assistant . && docker run -d --name glados-personal-assistant --env-file .env -v /home/simo/docker/GLaDOS_personal_assistant/logs:/app/logs glados-personal-assistant 

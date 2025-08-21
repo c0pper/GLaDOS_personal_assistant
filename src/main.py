@@ -220,13 +220,15 @@ class TelegramBot:
         self.app.add_handler(MessageHandler(filters.VOICE, self.handle_voice_message))
         
         # Set up daily journal reminder
+        journal_reminder_hour, journal_reminder_minute = map(int, Config.JOURNAL_REMINDER_TIME.split(':'))
         self.daily_job = self.app.job_queue.run_daily(
             callback=self.send_journal_reminder,
-            time=time(21, 00, 0),
+            time=time(journal_reminder_hour, journal_reminder_minute, 0),
             days=(0, 1, 2, 3, 4, 5, 6),
             chat_id=Config.MY_CHAT_ID,
             name="daily_journal_reminder"
         )
+        logger.info(f"Daily journal reminder set for {Config.JOURNAL_REMINDER_TIME} UTC+2")
 
         console.print("[bold green]Handlers have been set up successfully![/bold green]")
         

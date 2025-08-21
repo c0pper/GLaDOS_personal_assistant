@@ -30,7 +30,7 @@ class Journal:
             people_rows.append(buttons)
         
         # Add the 'Done' button with the journal ID
-        people_rows.append([InlineKeyboardButton("Done", callback_data=f"done_people;none;{journal_id}")])
+        people_rows.append([InlineKeyboardButton("Done", callback_data=f"done_people;done_people;{journal_id}")])
         
         return InlineKeyboardMarkup(people_rows)
 
@@ -125,6 +125,10 @@ class Journal:
             # Split the string into a list of people.
             current_people_list = [p.strip() for p in current_people_str.split('; ') if p.strip()]
     
+            # Check if done people is selected
+            if callback_value == 'done_people':
+                logger.info(f"User has finished selecting people for journal entry {journal_id} with the following people: {current_people_list}")
+
             # Check if the person is already in the list.
             if callback_value in current_people_list:
                 # If the person is found, remove them.

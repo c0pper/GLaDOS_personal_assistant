@@ -28,3 +28,5 @@ class Config:
     POSTGRES_DB_PASSWORD: str = os.environ["POSTGRES_DB_PASSWORD"]
     POSTGRES_DB_HOST: str = os.environ["POSTGRES_DB_HOST"]
     POSTGRES_DB_PORT: str = os.environ["POSTGRES_DB_PORT"]
+
+    JOURNAL_REMINDER_TIME: str = os.environ["JOURNAL_REMINDER_TIME"]
