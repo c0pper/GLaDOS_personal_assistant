@@ -34,7 +34,7 @@ class Journal:
         
         return InlineKeyboardMarkup(people_rows)
 
-    async def handle_command(self, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handles the initial /journal command."""
         chat_id = Config.MY_CHAT_ID
         journal_id = datetime.now().strftime('%d%m%Y')

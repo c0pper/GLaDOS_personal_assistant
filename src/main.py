@@ -201,7 +201,7 @@ class TelegramBot:
 
     async def send_journal_reminder(self, context: ContextTypes.DEFAULT_TYPE):
         """Send a scheduled message to the configured chat."""
-        await self.journal_app.handle_command(context)
+        await self.journal_app.handle_command(None, context)
         # await context.bot.send_message(chat_id=Config.MY_CHAT_ID, text="This is your scheduled message! ✅")
 
     def setup_handlers(self):
