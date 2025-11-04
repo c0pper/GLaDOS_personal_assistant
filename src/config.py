@@ -30,3 +30,7 @@ class Config:
     POSTGRES_DB_PORT: str = os.environ["POSTGRES_DB_PORT"]
 
     JOURNAL_REMINDER_TIME: str = os.environ["JOURNAL_REMINDER_TIME"]
+    JOURNIV_BASE_URL: str = os.environ["JOURNIV_BASE_URL"]
+    JOURNIV_EMAIL: str = os.environ["JOURNIV_EMAIL"]
+    JOURNIV_PASSWORD: str = os.environ["JOURNIV_PASSWORD"]
+    JOURNIV_JOURNAL_NAME: str = os.environ["JOURNIV_JOURNAL_NAME"]

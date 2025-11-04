@@ -1,5 +1,5 @@
 
-from datetime import datetime
+from datetime import datetime, date
 import os
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
@@ -8,6 +8,8 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Messa
 from src.config import Config
 from src.logger import logger
 from src.tools.journal.tool.postgres_db import PostgresDB
+from src.tools.journal.tool.journiv import JournivClient
+from src.tools.journal.tool.shared_schemas import EntryCreate
 
 class JournalEntry(BaseModel):
     id: str
@@ -53,7 +55,7 @@ class Journal:
         # Initialize Pydantic model
         self.current_journal_entry = JournalEntry(
             id=new_journal_entry_id,
-            date=datetime.now().isoformat(),
+            date=datetime.now().strftime('%d-%m-%Y'),
             mood=0,
             people=[],
             notes=""
@@ -62,16 +64,16 @@ class Journal:
         # self.pending_entries[new_journal_entry_id] = journal_entry
 
         # Check if today's entry already exists
-        today_entry = self.db.select_row_by_id(self.journal_table, new_journal_entry_id)
-        if not today_entry:
+        # today_entry = self.db.select_row_by_id(self.journal_table, new_journal_entry_id)
+        # if not today_entry:
             # Initialize a new journal entry for the day
-            self.db.insert_row(self.journal_table, {
-                'id': new_journal_entry_id,
-                'date': datetime.now().isoformat(),
-                'mood': 0,
-                'people': '',
-                'notes': ''
-            })
+            # self.db.insert_row(self.journal_table, {
+            #     'id': new_journal_entry_id,
+            #     'date': datetime.now().isoformat(),
+            #     'mood': 0,
+            #     'people': '',
+            #     'notes': ''
+            # })
 
         # Ask the user for their mood with inline buttons
         inline_keyboard = [
@@ -114,7 +116,7 @@ class Journal:
             # Mood selection: update mood column and proceed to ask about people
             mood_value = int(callback_value)
             self.current_journal_entry.mood = mood_value
-            self.db.update_row(self.journal_table, journal_id, {'mood': mood_value})
+            # self.db.update_row(self.journal_table, journal_id, {'mood': mood_value})
             
             # The people keyboard also needs to send the journal_id
             updated_people_keyboard = self.get_people_keyboard_with_id(journal_id)
@@ -145,7 +147,10 @@ class Journal:
         elif data_type == 'no_notes':
             # Final flow: end the conversation
             print(self.current_journal_entry)
-            self.post_journal_entry()
+            
+            
+            await self.finalize_journal_entry()
+
             await context.bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
@@ -167,7 +172,7 @@ class Journal:
             new_people_str = '; '.join(self.current_journal_entry.people)
             
             # Update the 'people' column in the database with the new string.
-            self.db.update_row(self.journal_table, journal_id, {'people': new_people_str})
+            # self.db.update_row(self.journal_table, journal_id, {'people': new_people_str})
 
             # Prepare the text for the updated message.
             # Check if there are any people currently selected.
@@ -197,8 +202,8 @@ class Journal:
             journal_id = datetime.now().strftime('%d%m%Y')
             self.current_journal_entry.notes = text
 
-            self.db.update_row(self.journal_table, journal_id, {'notes': text})
-            await self.post_journal_entry()
+            # self.db.update_row(self.journal_table, journal_id, {'notes': text})
+            await self.finalize_journal_entry()
 
             # Final flow
             await context.bot.send_message(chat_id=message.chat_id, text="Note added. Journal entry complete.\n\n" + str(self.current_journal_entry))
@@ -209,3 +214,156 @@ class Journal:
     async def post_journal_entry(self):
         """Posts the current journal entry to the Journiv."""
         print(f"Posting journal entry: {self.current_journal_entry}")
+        client = JournivClient()
+        
+        # Login once (you might want to store credentials in config)
+        if client.login():
+            # Convert to API format
+            entry_data = EntryCreate(
+                title=f"Journal Entry - {self.current_journal_entry.date}",
+                content=self.current_journal_entry.notes,
+                entry_date=self.current_journal_entry.date,
+                journal_id=client.get_journal_id_by_name(Config.JOURNIV_JOURNAL_NAME),
+            )
+            entry_response = client.create_entry(entry_data)
+            logger.info(f"Entry created: {entry_response}")
+        else:
+            logger.error("Failed to authenticate with external API")
+
+    async def finalize_journal_entry(self):
+        """Finalize the journal entry by posting it to the DB and external API."""
+
+        # Post to Journiv
+        await self.post_journal_entry()
+        # Post to DB
+        today_entry = self.db.select_row_by_id(self.journal_table, self.current_journal_entry.id)
+        if not today_entry:
+            self.db.insert_row(self.journal_table, {
+                'id': self.current_journal_entry.id,
+                'date': datetime.now().isoformat(),
+                'mood': self.current_journal_entry.mood,
+                'people': ";".join(self.current_journal_entry.people),
+                'notes': self.current_journal_entry.notes
+            })
+
+    ###########################################################################
+    # Below are functions for syncing journal entries to Journiv
+    ###########################################################################
+
+    async def sync_all_entries_to_journiv(self):
+        """Sync all existing journal entries from database to Journiv"""
+        client = JournivClient()
+        
+        if not client.login():
+            logger.error("Failed to authenticate with Journiv")
+            return
+
+        # Get all journal entries from your database
+        all_entries = self.db.get_all_rows(self.journal_table)
+        logger.info(f"Found {len(all_entries)} entries to sync")
+        
+        successful_syncs = 0
+        failed_syncs = 0
+
+
+        for entry_tuple in all_entries:
+            try:
+                # Convert tuple to dictionary - you'll need to know the column order
+                # Assuming order: id, date, mood, people, notes
+                entry_dict = {
+                    'id': entry_tuple[0],
+                    'date': entry_tuple[1],
+                    'mood': entry_tuple[2],
+                    'people': entry_tuple[3],
+                    'notes': entry_tuple[4]
+                }
+                
+                # Convert your database entry to Journiv format
+                journiv_entry = self._convert_to_journiv_format(entry_dict, client)
+                
+                # Create entry in Journiv
+                response = client.create_entry(journiv_entry)
+                
+                if response:
+                    successful_syncs += 1
+                    logger.info(f"Successfully synced entry {entry_dict['id']} to Journiv")
+                else:
+                    failed_syncs += 1
+                    logger.error(f"Failed to sync entry {entry_dict['id']}")
+                    
+            except Exception as e:
+                failed_syncs += 1
+                # Use the tuple index for id instead of dict access
+                entry_id = entry_tuple[0] if len(entry_tuple) > 0 else "unknown"
+                logger.error(f"Error syncing entry {entry_id}: {e}")
+                continue
+
+        logger.info(f"Sync completed: {successful_syncs} successful, {failed_syncs} failed")
+
+    def _convert_to_journiv_format(self, db_entry: dict, client: JournivClient) -> EntryCreate:
+        """Convert database entry to Journiv EntryCreate format"""
+        # Parse the date from your database format
+        entry_date = self._parse_date(db_entry['date'])
+        
+        # Parse people from semicolon-separated string to list
+        people_str = db_entry.get('people', '')
+        if people_str:
+            people_list = [p.strip() for p in people_str.split(';') if p.strip()]
+            people_display = ", ".join(people_list)
+        else:
+            people_display = "None"
+        
+        notes = db_entry.get('notes', '') or 'No notes'
+        
+        content = f"""Mood: {db_entry.get('mood', 0)}/5
+    People: {people_display}
+    Notes: {notes}"""
+        
+        # Get journal ID from client or use config fallback
+        journal_id = client.get_journal_id_by_name(Config.JOURNIV_JOURNAL_NAME)
+        
+        return EntryCreate(
+            title=f"Journal Entry - {entry_date}",
+            content=content,
+            entry_date=entry_date,
+            journal_id=journal_id
+        )
+
+    def _parse_date(self, date_value) -> str:
+        """Parse date from various formats to YYYY-MM-DD"""
+        try:
+            if isinstance(date_value, date):  # Use date directly, not datetime.date
+                # Handle datetime.date objects directly
+                return date_value.strftime("%Y-%m-%d")
+            elif isinstance(date_value, datetime):
+                # Handle datetime objects
+                return date_value.strftime("%Y-%m-%d")
+            elif isinstance(date_value, str):
+                # Handle string dates
+                if 'T' in date_value:
+                    # ISO format: "2024-11-04T19:24:22.618Z"
+                    date_obj = datetime.fromisoformat(date_value.replace('Z', '+00:00'))
+                    return date_obj.strftime("%Y-%m-%d")
+                else:
+                    # Assume it's already in YYYY-MM-DD format
+                    return date_value
+            else:
+                # Fallback for any other type
+                return datetime.now().strftime("%Y-%m-%d")
+        except Exception as e:
+            logger.error(f"Error parsing date {date_value}: {e}")
+            # Fallback to today's date
+            return datetime.now().strftime("%Y-%m-%d")
+
+        
+
+if __name__ == "__main__":
+    import asyncio
+    journal = Journal(PostgresDB(
+        db_name=Config.POSTGRES_DB_NAME,
+        user=Config.POSTGRES_DB_USER,
+        password=Config.POSTGRES_DB_PASSWORD,
+        host=Config.POSTGRES_DB_HOST,
+        port=Config.POSTGRES_DB_PORT
+    ))
+    asyncio.run(journal.sync_all_entries_to_journiv())

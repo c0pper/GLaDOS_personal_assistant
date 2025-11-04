@@ -92,6 +92,11 @@ class PostgresDB:
         people = self.execute_query(query)
         people_names = [person[1].lower() for person in people]
         return people_names
+    
+    def get_all_rows(self, table_name: str) -> List[dict]:
+        """Get all rows from a table"""
+        query = f"SELECT * FROM {table_name}"
+        return self.execute_query(query)
 
 
 if __name__ == "__main__":
