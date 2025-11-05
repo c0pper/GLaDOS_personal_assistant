@@ -31,6 +31,8 @@ class Journal:
         self.journal_table = "journal"
         self.people = self.db.get_all_people()
         self.current_journal_entry: Optional[JournalEntry] = None
+        self.journiv_client = JournivClient()
+        self.journiv_client.login()
 
     def get_people_keyboard_with_id(self, journal_id: str) -> InlineKeyboardMarkup:
         """Generates an inline keyboard for selecting people, including the journal ID."""
@@ -250,9 +252,11 @@ class Journal:
     # Below are functions for syncing journal entries to Journiv
     ###########################################################################
 
-    async def sync_all_entries_to_journiv(self):
+    async def sync_all_entries_to_journiv(self, overwrite: bool = False):
         """Sync all existing journal entries from database to Journiv"""
         client = JournivClient()
+        client.login()
+        journal_id = client.get_journal_id_by_name(Config.JOURNIV_JOURNAL_NAME)
         
         if not client.login():
             logger.error("Failed to authenticate with Journiv")
@@ -264,15 +268,23 @@ class Journal:
         
         successful_syncs = 0
         failed_syncs = 0
-
+        
+        all_journiv_entries = self.journiv_client.get_all_journal_entries(journal_id)
 
         for entry_tuple in all_entries:
             try:
                 # Convert tuple to dictionary - you'll need to know the column order
                 # Assuming order: id, date, mood, people, notes
+                entry_date = self._parse_date(entry_tuple[1])
+                entries_with_date = self.journiv_client.get_entries_by_date(all_journiv_entries, entry_date)
+
+                if entries_with_date and not overwrite:
+                    logger.info(f"Entry already exists in Journiv: {entry_date}")
+                    continue
+
                 entry_dict = {
                     'id': entry_tuple[0],
-                    'date': entry_tuple[1],
+                    'date': entry_date,
                     'mood': entry_tuple[2],
                     'people': entry_tuple[3],
                     'notes': entry_tuple[4]
@@ -303,7 +315,7 @@ class Journal:
     def _convert_to_journiv_format(self, db_entry: dict, client: JournivClient) -> EntryCreate:
         """Convert database entry to Journiv EntryCreate format"""
         # Parse the date from your database format
-        entry_date = self._parse_date(db_entry['date'])
+        # entry_date = self._parse_date(db_entry['date'])
         
         # Parse people from semicolon-separated string to list
         people_str = db_entry.get('people', '')
@@ -323,9 +335,9 @@ class Journal:
         journal_id = client.get_journal_id_by_name(Config.JOURNIV_JOURNAL_NAME)
         
         return EntryCreate(
-            title=f"Journal Entry - {entry_date}",
+            title=f"Journal Entry - {db_entry['date']}",
             content=content,
-            entry_date=entry_date,
+            entry_date=db_entry['date'],
             journal_id=journal_id
         )
 
@@ -366,4 +378,4 @@ if __name__ == "__main__":
         host=Config.POSTGRES_DB_HOST,
         port=Config.POSTGRES_DB_PORT
     ))
-    asyncio.run(journal.sync_all_entries_to_journiv())
+    asyncio.run(journal.sync_all_entries_to_journiv(overwrite=True))

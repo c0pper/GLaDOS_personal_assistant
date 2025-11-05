@@ -94,8 +94,8 @@ class PostgresDB:
         return people_names
     
     def get_all_rows(self, table_name: str) -> List[dict]:
-        """Get all rows from a table"""
-        query = f"SELECT * FROM {table_name}"
+        """Get all rows from a table sorted by date ascending"""
+        query = f"SELECT * FROM {table_name} ORDER BY date ASC"
         return self.execute_query(query)
 
 

@@ -1,4 +1,5 @@
 
+from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel
 
@@ -25,3 +26,31 @@ class EntryResponse(BaseModel):
     is_pinned: bool
     created_at: str
     updated_at: str
+
+class Mood(BaseModel):
+    id: str
+    name: str
+    icon: str
+    category: str
+    created_at: datetime
+    updated_at: datetime
+
+class MoodLogCreate(BaseModel):
+    mood_id: str
+    note: Optional[str] = None
+    entry_id: Optional[str] = None
+
+class MoodLogResponse(BaseModel):
+    id: str
+    mood_id: str
+    note: Optional[str]
+    entry_id: Optional[str]
+    user_id: str
+    created_at: datetime
+    logged_date: str
+    mood: Mood
+    entry_date: Optional[str]
+
+class MoodLogUpdate(BaseModel):
+    mood_id: str
+    note: Optional[str] = None
