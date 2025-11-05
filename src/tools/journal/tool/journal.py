@@ -112,7 +112,7 @@ class Journal:
 
         # Initialize variables for the updated journal entry
         mood_value = 0
-        notes_value = 'No notes'
+        # notes_value = 'No notes'
 
         # Answer the callback query to remove the loading state on the button
         await query.answer()
@@ -142,7 +142,7 @@ class Journal:
             ]
             reply_markup = InlineKeyboardMarkup(notes_keyboard)
             
-            self.current_journal_entry.notes = notes_value
+            # self.current_journal_entry.notes = notes_value
 
             await context.bot.edit_message_text(
                 chat_id=chat_id,
@@ -217,14 +217,14 @@ class Journal:
         # Login once (you might want to store credentials in config)
         if client.login():
             # Convert to API format
-            content = f"""
-Mood: {self.current_journal_entry.mood_id}
+            if not self.current_journal_entry.notes:
+                self.current_journal_entry.notes = f"""
 People: {", ".join(self.current_journal_entry.people)}
-Notes: {self.current_journal_entry.notes}
-"""
+Notes: No notes
+""" 
             entry_data = EntryCreate(
                 title=f"Journal Entry - {self.current_journal_entry.date}",
-                content=content,
+                content=self.current_journal_entry.notes,
                 entry_date=self.current_journal_entry.date,
                 journal_id=client.get_journal_id_by_name(Config.JOURNIV_JOURNAL_NAME),
             )
