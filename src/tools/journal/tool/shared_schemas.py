@@ -37,8 +37,8 @@ class Mood(BaseModel):
 
 class MoodLogCreate(BaseModel):
     mood_id: str
+    entry_id: str
     note: Optional[str] = None
-    entry_id: Optional[str] = None
 
 class MoodLogResponse(BaseModel):
     id: str

@@ -248,6 +248,11 @@ class JournivClient:
         
         response.raise_for_status()
         return []
+
+    @classmethod
+    def convert_mood_to_numeric(cls, mood_name: str) -> int:
+        """Convert mood name to 1-5 numeric scale"""
+        return cls.MOOD_MAPPING.get(mood_name, 3)  # Default to neutral (3)
     
     @classmethod
     def convert_numeric_to_mood(cls, numeric_mood: int) -> str:

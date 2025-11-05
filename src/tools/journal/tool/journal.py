@@ -9,12 +9,13 @@ from src.config import Config
 from src.logger import logger
 from src.tools.journal.tool.postgres_db import PostgresDB
 from src.tools.journal.tool.journiv import JournivClient
-from src.tools.journal.tool.shared_schemas import EntryCreate
+from src.tools.journal.tool.shared_schemas import EntryCreate, MoodLogCreate
 
 class JournalEntry(BaseModel):
     id: str
     date: str
     mood: int = 0
+    mood_id: str = ""
     people: List[str] = []
     notes: str = ""
 
@@ -62,33 +63,39 @@ class Journal:
             people=[],
             notes=""
         )
+
+        # Get all moods from Journiv
+        all_moods = self.journiv_client.get_moods()
+    
+        # Group moods by category
+        mood_categories = {}
+        for mood in all_moods:
+            if mood.category not in mood_categories:
+                mood_categories[mood.category] = []
+            mood_categories[mood.category].append(mood)
         
-        # self.pending_entries[new_journal_entry_id] = journal_entry
-
-        # Check if today's entry already exists
-        # today_entry = self.db.select_row_by_id(self.journal_table, new_journal_entry_id)
-        # if not today_entry:
-            # Initialize a new journal entry for the day
-            # self.db.insert_row(self.journal_table, {
-            #     'id': new_journal_entry_id,
-            #     'date': datetime.now().isoformat(),
-            #     'mood': 0,
-            #     'people': '',
-            #     'notes': ''
-            # })
-
-        # Ask the user for their mood with inline buttons
-        inline_keyboard = [
-            [
-                {"text": "😭", "callback_data": f"mood;1;{new_journal_entry_id}"},
-                {"text": "😢", "callback_data": f"mood;2;{new_journal_entry_id}"},
-                {"text": "😐", "callback_data": f"mood;3;{new_journal_entry_id}"},
-                {"text": "🙂", "callback_data": f"mood;4;{new_journal_entry_id}"},
-                {"text": "🤩", "callback_data": f"mood;5;{new_journal_entry_id}"}
-            ]
-        ]
-        # Using reply_markup with a list of lists of InlineKeyboardButton objects
-        reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(btn['text'], callback_data=btn['callback_data']) for btn in row] for row in inline_keyboard])
+        # Create keyboard organized by category
+        inline_keyboard = []
+        
+        max_buttons_per_row = 4
+        
+        # Define category order: negative, neutral, positive
+        category_order = ['negative', 'neutral', 'positive']
+        
+        for category in category_order:
+            if category in mood_categories:
+                moods = mood_categories[category]
+                # Split moods into rows of max 4 buttons
+                for i in range(0, len(moods), max_buttons_per_row):
+                    row = []
+                    for mood in moods[i:i + max_buttons_per_row]:
+                        numeric_value = self.journiv_client.convert_mood_to_numeric(mood.name)
+                        callback_data = f"mood;{numeric_value}+{mood.id};{new_journal_entry_id}"
+                        button = InlineKeyboardButton(f"{mood.icon} {mood.name}", callback_data=callback_data)
+                        row.append(button)
+                    inline_keyboard.append(row)
+        
+        reply_markup = InlineKeyboardMarkup(inline_keyboard)
         
         await context.bot.send_message(chat_id=chat_id, text="How are you feeling today?", reply_markup=reply_markup)
 
@@ -103,11 +110,8 @@ class Journal:
         callback_value = callback_parts[1]
         journal_id = callback_parts[2]
 
-        # journal_entry = self.pending_entries.get(journal_id)
-
         # Initialize variables for the updated journal entry
         mood_value = 0
-        current_people_str = ''
         notes_value = 'No notes'
 
         # Answer the callback query to remove the loading state on the button
@@ -116,9 +120,10 @@ class Journal:
         # Logic based on the n8n flow's "Switch1" node
         if data_type == 'mood':
             # Mood selection: update mood column and proceed to ask about people
-            mood_value = int(callback_value)
+            mood_value, mood_id = callback_value.split('+')
+            mood_value = int(mood_value)
             self.current_journal_entry.mood = mood_value
-            # self.db.update_row(self.journal_table, journal_id, {'mood': mood_value})
+            self.current_journal_entry.mood_id = mood_id
             
             # The people keyboard also needs to send the journal_id
             updated_people_keyboard = self.get_people_keyboard_with_id(journal_id)
@@ -170,14 +175,6 @@ class Journal:
                 self.current_journal_entry.people.append(callback_value)
                 logger.info(f"Added {callback_value} to the list.")
 
-            # Join the updated list back into a semicolon-separated string.
-            new_people_str = '; '.join(self.current_journal_entry.people)
-            
-            # Update the 'people' column in the database with the new string.
-            # self.db.update_row(self.journal_table, journal_id, {'people': new_people_str})
-
-            # Prepare the text for the updated message.
-            # Check if there are any people currently selected.
             if self.current_journal_entry.people:
                 selected_people_text = ", ".join(self.current_journal_entry.people)
                 new_message_text = f"Who were you with? (Currently selected: {selected_people_text})"
@@ -201,7 +198,6 @@ class Journal:
         text = message.text
         # Check if the message is a reply to the 'notes' message
         if message.reply_to_message and "Add a note by replying" in message.reply_to_message.text:
-            journal_id = datetime.now().strftime('%d%m%Y')
             self.current_journal_entry.notes = text
 
             # self.db.update_row(self.journal_table, journal_id, {'notes': text})
@@ -221,13 +217,26 @@ class Journal:
         # Login once (you might want to store credentials in config)
         if client.login():
             # Convert to API format
+            content = f"""
+Mood: {self.current_journal_entry.mood_id}
+People: {", ".join(self.current_journal_entry.people)}
+Notes: {self.current_journal_entry.notes}
+"""
             entry_data = EntryCreate(
                 title=f"Journal Entry - {self.current_journal_entry.date}",
-                content=self.current_journal_entry.notes,
+                content=content,
                 entry_date=self.current_journal_entry.date,
                 journal_id=client.get_journal_id_by_name(Config.JOURNIV_JOURNAL_NAME),
             )
             entry_response = client.create_entry(entry_data)
+            
+            # Log mood to the journal entry
+            mood_log_data = MoodLogCreate(
+                mood_id=self.current_journal_entry.mood_id,
+                entry_id=entry_response.id,
+            )
+            client.log_mood(mood_log_data)
+
             logger.info(f"Entry created: {entry_response}")
         else:
             logger.error("Failed to authenticate with external API")
