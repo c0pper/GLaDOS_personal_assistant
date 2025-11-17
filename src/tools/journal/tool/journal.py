@@ -30,10 +30,12 @@ class Journal:
     def __init__(self, db: PostgresDB):
         self.db = db
         self.journal_table = "journal"
-        self.people = self.db.get_all_people()
+        # self.people = self.db.get_all_people()
         self.current_journal_entry: Optional[JournalEntry] = None
         self.journiv_client = JournivClient()
         self.journiv_client.login()
+        self.people = [t.name for t in self.journiv_client.get_all_tags()]
+        self.people.sort()
 
     def get_people_keyboard_with_id(self, journal_id: str) -> InlineKeyboardMarkup:
         """Generates an inline keyboard for selecting people, including the journal ID."""
