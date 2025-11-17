@@ -237,6 +237,15 @@ Notes: No notes
             )
             client.log_mood(mood_log_data)
 
+            # Add people as tags to the entry
+            for person in self.current_journal_entry.people:
+                tag = client.get_tag_by_name(person)
+                if tag:
+                    client.add_tag_to_entry(entry_response.id, tag.id)
+                    logger.info(f"Added tag '{person}' to entry {entry_response.id}")
+                else:
+                    logger.warning(f"Tag '{person}' not found, skipping")
+
             logger.info(f"Entry created: {entry_response}")
         else:
             logger.error("Failed to authenticate with external API")
@@ -321,6 +330,102 @@ Notes: No notes
 
         logger.info(f"Sync completed: {successful_syncs} successful, {failed_syncs} failed")
 
+    async def sync_people_as_tags_to_journiv(self):
+        """Sync people from database entries as tags to existing Journiv entries"""
+        def normalize_name(name: str) -> str:
+            """Normalize a name by removing punctuation and converting to lowercase"""
+            if "flavia" in name:
+                return "flavia i."
+            elif "marta" in name:
+                return "marta k"
+            else:
+                return name
+
+        client = JournivClient()
+        
+        if not client.login():
+            logger.error("Failed to authenticate with Journiv")
+            return
+
+        # Get all journal entries from your database
+        all_entries = self.db.get_all_rows(self.journal_table)
+        logger.info(f"Found {len(all_entries)} entries to process for people tags")
+        
+        # Get all Journiv entries
+        journal_id = client.get_journal_id_by_name(Config.JOURNIV_JOURNAL_NAME)
+        all_journiv_entries = client.get_all_journal_entries(journal_id)
+        
+        successful_tags = 0
+        failed_tags = 0
+        skipped_tags = 0
+
+        for entry_tuple in all_entries:
+            try:
+                # Convert tuple to dictionary
+                entry_dict = {
+                    'id': entry_tuple[0],
+                    'date': self._parse_date(entry_tuple[1]),
+                    'mood': entry_tuple[2],
+                    'people': entry_tuple[3],
+                    'notes': entry_tuple[4]
+                }
+                
+                # Skip if no people
+                if not entry_dict['people']:
+                    continue
+                    
+                # Parse people from semicolon-separated string
+                people_list = [p.strip() for p in entry_dict['people'].split(';') if p.strip()]
+                if len (people_list) == 1 and "," in people_list[0]:
+                    people_list = [p.strip() for p in people_list[0].split(",")]
+                people_list = [normalize_name(p) for p in people_list]
+                if not people_list:
+                    continue
+                
+                # Find corresponding Journiv entry by date
+                journiv_entries = client.get_entries_by_date(all_journiv_entries, entry_dict['date'])
+                if not journiv_entries:
+                    logger.warning(f"No Journiv entry found for date {entry_dict['date']}")
+                    continue
+                    
+                # Use the first entry found for that date
+                journiv_entry = journiv_entries[0]
+                
+                # Check if entry already has tags (optional - you might want to skip if tags exist)
+                existing_tags = client.get_entry_tags(journiv_entry.id)  # You'll need to implement this method
+                
+                # Add each person as a tag
+                for person in people_list:
+                    try:
+                        # Get or create tag for this person
+                        tag = client.get_tag_by_name(person)
+                        if not tag:
+                            logger.warning(f"Tag '{person}' not found, skipping")
+                            skipped_tags += 1
+                            continue
+                        
+                        # Check if tag already exists on entry (optional)
+                        if existing_tags and any(t.id == tag.id for t in existing_tags):
+                            logger.info(f"Tag '{person}' already exists on entry {journiv_entry.id}")
+                            continue
+                        
+                        # Add tag to entry
+                        client.add_tag_to_entry(journiv_entry.id, tag.id)
+                        successful_tags += 1
+                        logger.info(f"Added tag '{person}' to entry {journiv_entry.id}")
+                        
+                    except Exception as e:
+                        failed_tags += 1
+                        logger.error(f"Error adding tag '{person}' to entry {journiv_entry.id}: {e}")
+                        continue
+                        
+            except Exception as e:
+                entry_id = entry_tuple[0] if len(entry_tuple) > 0 else "unknown"
+                logger.error(f"Error processing entry {entry_id} for people tags: {e}")
+                continue
+
+        logger.info(f"People tags sync completed: {successful_tags} added, {skipped_tags} skipped, {failed_tags} failed")
+
     def _convert_to_journiv_format(self, db_entry: dict, client: JournivClient) -> EntryCreate:
         """Convert database entry to Journiv EntryCreate format"""
         # Parse the date from your database format
@@ -387,4 +492,4 @@ if __name__ == "__main__":
         host=Config.POSTGRES_DB_HOST,
         port=Config.POSTGRES_DB_PORT
     ))
-    asyncio.run(journal.sync_all_entries_to_journiv(overwrite=True))
+    asyncio.run(journal.sync_people_as_tags_to_journiv())

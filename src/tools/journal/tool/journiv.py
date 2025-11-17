@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from src.tools.journal.tool.shared_schemas import EntryCreate, EntryResponse, Mood, MoodLogCreate, MoodLogResponse, MoodLogUpdate
+from src.tools.journal.tool.shared_schemas import EntryCreate, EntryResponse, EntryTagResponse, EntryUpdate, Mood, MoodLogCreate, MoodLogResponse, MoodLogUpdate, Tag
 from src.config import Config
 import requests
 from typing import List, Optional
@@ -221,7 +221,74 @@ class JournivClient:
                 matching_entries.append(entry)
         
         return matching_entries
-    
+
+    def update_entry(self, entry_id: str, update_data: EntryUpdate) -> EntryResponse:
+        """Update an entry's content, title, or other properties"""
+        url = f"{self.base_url}/api/v1/entries/{entry_id}"
+        
+        response = requests.put(url, headers=self._get_headers(), json=update_data.dict(exclude_none=True))
+        
+        if response.status_code == 200:
+            return EntryResponse(**response.json())
+        elif response.status_code == 401:
+            if self.refresh_access_token():
+                response = requests.put(url, headers=self._get_headers(), json=update_data.dict(exclude_none=True))
+                if response.status_code == 200:
+                    return EntryResponse(**response.json())
+        
+        response.raise_for_status()
+
+    def extract_date_from_title(self, title: str) -> Optional[str]:
+        """Extract date from title in multiple formats and convert to YYYY-MM-DD"""
+        import re
+        
+        # Pattern that matches both DD-MM-YYYY and YYYY-MM-DD formats
+        pattern = r'Journal Entry - (\d{2,4}-\d{2}-\d{2,4})'
+        
+        match = re.search(pattern, title)
+        if match:
+            date_str = match.group(1)
+            try:
+                # Try DD-MM-YYYY format first
+                date_obj = datetime.strptime(date_str, "%d-%m-%Y")
+                return date_obj.strftime("%Y-%m-%d")
+            except ValueError:
+                try:
+                    # Try YYYY-MM-DD format
+                    datetime.strptime(date_str, "%Y-%m-%d")
+                    return date_str  # Already in correct format
+                except ValueError:
+                    pass
+        
+        return None
+
+    def fix_entry_dates_from_titles(self, journal_id: str):
+        """Fix entry dates based on dates in titles"""
+        all_entries = self.get_all_journal_entries(journal_id)
+        
+        fixed_count = 0
+        
+        for entry in all_entries:
+            try:
+                # Extract date from title
+                correct_date = self.extract_date_from_title(entry.title)
+                
+                if correct_date and correct_date != entry.entry_date:
+                    # Update the entry with the correct date
+                    update_data = EntryUpdate(
+                        entry_date=correct_date
+                    )
+                    
+                    self.update_entry(entry.id, update_data)
+                    fixed_count += 1
+                    logger.info(f"Fixed entry {entry.id}: {entry.entry_date} -> {correct_date}")
+                    
+            except Exception as e:
+                logger.error(f"Error fixing entry {entry.id}: {e}")
+                continue
+        
+        logger.info(f"Date fixing completed: {fixed_count} entries updated")
+
     ###########################################################################
     # Moods
     ###########################################################################
@@ -405,9 +472,107 @@ class JournivClient:
                 return int(match.group(1))
         
         return None
+    
+    ###########################################################################
+    # People
+    ###########################################################################
+    def add_tag_to_entry(self, entry_id: str, tag_id: str) -> EntryTagResponse:
+        """Add a tag to an entry"""
+        url = f"{self.base_url}/api/v1/tags/entry/{entry_id}/tag/{tag_id}"
+        
+        response = requests.post(url, headers=self._get_headers())
+        
+        if response.status_code == 201:
+            return EntryTagResponse(**response.json())
+        elif response.status_code == 401:
+            if self.refresh_access_token():
+                response = requests.post(url, headers=self._get_headers())
+                if response.status_code == 201:
+                    return EntryTagResponse(**response.json())
+        
+        response.raise_for_status()
+
+    def get_tags(self, limit: int = 50, offset: int = 0, search: Optional[str] = None) -> List[Tag]:
+        """Get tags for the current user"""
+        url = f"{self.base_url}/api/v1/tags/"
+        
+        params = {
+            'limit': min(limit, 100),
+            'offset': offset
+        }
+        if search:
+            params['search'] = search
+        
+        response = requests.get(url, headers=self._get_headers(), params=params)
+        
+        if response.status_code == 200:
+            tags_data = response.json()
+            return [Tag(**tag) for tag in tags_data]
+        elif response.status_code == 401:
+            if self.refresh_access_token():
+                response = requests.get(url, headers=self._get_headers(), params=params)
+                if response.status_code == 200:
+                    tags_data = response.json()
+                    return [Tag(**tag) for tag in tags_data]
+        
+        response.raise_for_status()
+        return []
+
+    def get_all_tags(self, search: Optional[str] = None) -> List[Tag]:
+        """Get all tags for the current user (handles pagination)"""
+        all_tags = []
+        limit = 100  # Max per request
+        offset = 0
+        
+        while True:
+            tags = self.get_tags(limit=limit, offset=offset, search=search)
+            if not tags:
+                break
+                
+            all_tags.extend(tags)
+            
+            # If we got fewer than the limit, we've reached the end
+            if len(tags) < limit:
+                break
+                
+            offset += limit
+        
+        return all_tags
+
+    def get_tag_by_name(self, tag_name: str) -> Optional[Tag]:
+        """Get a tag by name (case-insensitive)"""
+        all_tags = self.get_all_tags()
+        tag_name_lower = tag_name.lower()
+        
+        for tag in all_tags:
+            if tag.name.lower() == tag_name_lower:
+                return tag
+        return None
+
+    def get_entry_tags(self, entry_id: str) -> List[Tag]:
+        """Get all tags for an entry"""
+        url = f"{self.base_url}/api/v1/tags/entry/{entry_id}"
+        
+        response = requests.get(url, headers=self._get_headers())
+        
+        if response.status_code == 200:
+            tags_data = response.json()
+            return [Tag(**tag) for tag in tags_data]
+        elif response.status_code == 401:
+            if self.refresh_access_token():
+                response = requests.get(url, headers=self._get_headers())
+                if response.status_code == 200:
+                    tags_data = response.json()
+                    return [Tag(**tag) for tag in tags_data]
+        
+        response.raise_for_status()
+        return []
 
 if __name__ == "__main__":
+    from dotenv import load_dotenv
+    load_dotenv()
+    import os
+
     client = JournivClient()
     client.login()
-    # Get all moods
-    client.update_entries_with_moods(client.get_journal_id_by_name(Config.JOURNIV_JOURNAL_NAME))
+    pass

@@ -27,6 +27,16 @@ class EntryResponse(BaseModel):
     created_at: str
     updated_at: str
 
+class EntryUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    entry_date: Optional[str] = None
+    entry_datetime_utc: Optional[str] = None
+    entry_timezone: Optional[str] = None
+    location: Optional[str] = None
+    weather: Optional[str] = None
+    is_pinned: Optional[bool] = None
+
 class Mood(BaseModel):
     id: str
     name: str
@@ -54,3 +64,17 @@ class MoodLogResponse(BaseModel):
 class MoodLogUpdate(BaseModel):
     mood_id: str
     note: Optional[str] = None
+
+class EntryTagResponse(BaseModel):
+    entry_id: str
+    tag_id: str
+    created_at: datetime
+    updated_at: datetime
+
+class Tag(BaseModel):
+    id: str
+    name: str
+    user_id: str
+    usage_count: int
+    created_at: datetime
+    updated_at: datetime
