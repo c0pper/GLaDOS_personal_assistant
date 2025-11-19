@@ -1,5 +1,5 @@
 
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import os
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
@@ -13,7 +13,7 @@ from src.tools.journal.tool.shared_schemas import EntryCreate, MoodLogCreate
 
 class JournalEntry(BaseModel):
     id: str
-    date: str
+    date: datetime
     mood: int = 0
     mood_id: str = ""
     people: List[str] = []
@@ -60,7 +60,7 @@ class Journal:
         # Initialize Pydantic model
         self.current_journal_entry = JournalEntry(
             id=new_journal_entry_id,
-            date=datetime.now().strftime('%d-%m-%Y'),
+            date=datetime.now(),
             mood=0,
             people=[],
             notes=""
@@ -225,9 +225,9 @@ People: {", ".join(self.current_journal_entry.people)}
 Notes: No notes
 """ 
             entry_data = EntryCreate(
-                title=f"Journal Entry - {self.current_journal_entry.date}",
+                title=f"Journal Entry - {self.current_journal_entry.date.strftime('%d-%m-%Y')}",
                 content=self.current_journal_entry.notes,
-                entry_date=self.current_journal_entry.date,
+                entry_date=(self.current_journal_entry.date - timedelta(days=1)).strftime('%d-%m-%Y'),
                 journal_id=client.get_journal_id_by_name(Config.JOURNIV_JOURNAL_NAME),
             )
             entry_response = client.create_entry(entry_data)
@@ -262,7 +262,7 @@ Notes: No notes
         if not today_entry:
             self.db.insert_row(self.journal_table, {
                 'id': self.current_journal_entry.id,
-                'date': datetime.now().isoformat(),
+                'date': self.current_journal_entry.date.isoformat(),
                 'mood': self.current_journal_entry.mood,
                 'people': ";".join(self.current_journal_entry.people),
                 'notes': self.current_journal_entry.notes
