@@ -100,7 +100,7 @@ class Journal:
         
         reply_markup = InlineKeyboardMarkup(inline_keyboard)
         
-        await context.bot.send_message(chat_id=chat_id, text="How are you feeling today?", reply_markup=reply_markup)
+        await context.bot.send_message(chat_id=chat_id, text=f"Logging day for {message_date.strftime('%d-%m-%Y')}", reply_markup=reply_markup)
 
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handles callback queries from inline buttons."""
