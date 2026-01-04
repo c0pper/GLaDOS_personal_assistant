@@ -16,9 +16,13 @@ from src.agents.vikunja_agent import process_vikunja_query
 from src.agents.home_assistant_agent import HomeAssistantInputSchema, HomeAssistantOutputSchema, invoke_intent, home_assistant_agent_config, AvailableIntentsProvider
 from src.tools.journal.tool.journal import Journal
 from src.tools.journal.tool.postgres_db import PostgresDB
+from src.tools.reddit_user_search.tool.reddit_user_search import RedditUserSearch
+import time as time_module
 
 
 console = Console()
+logger.info(time_module.tzname)
+
 
 
 class TelegramBot:
@@ -40,6 +44,7 @@ class TelegramBot:
             port=Config.POSTGRES_DB_PORT
         )
         self.journal_app = Journal(db=self.journal_db)
+        self.reddit_user_search = RedditUserSearch()
 
     def check_chat_id(self, chat_id):
         """
@@ -201,18 +206,18 @@ class TelegramBot:
 
     async def send_journal_reminder(self, context: ContextTypes.DEFAULT_TYPE):
         """Send a scheduled message to the configured chat."""
-        await self.journal_app.handle_command(None, context)
+        # await self.journal_app.handle_command(None, context)
+        await context.bot.send_message(chat_id=Config.MY_CHAT_ID, text="How are you feeling today? /journal to log your day.")
         # await context.bot.send_message(chat_id=Config.MY_CHAT_ID, text="This is your scheduled message! ✅")
 
     def setup_handlers(self):
         """Sets up and registers all the bot's handlers."""
+        self.app.add_handler(CommandHandler("search_reddit_user", self.reddit_user_search.handle_command))
+
         # Journal-related handlers should be registered first because they are more specific.
         self.app.add_handler(CommandHandler("journal", self.journal_app.handle_command))
         self.app.add_handler(CallbackQueryHandler(self.journal_app.handle_callback_query))
-        
-        # This handler is now much more specific and won't conflict.
-        # It will only trigger for text messages that are also replies.
-        self.app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, self.journal_app.handle_message))
+        self.app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, self.journal_app.handle_message)) # add journal note handler
 
         # Add your more general handlers after the specific ones
         self.app.add_handler(CommandHandler("hello", self.hello))
@@ -226,9 +231,9 @@ class TelegramBot:
             time=time(journal_reminder_hour, journal_reminder_minute, 0),
             days=(0, 1, 2, 3, 4, 5, 6),
             chat_id=Config.MY_CHAT_ID,
-            name="daily_journal_reminder"
+            name="daily_journal_reminder",
         )
-        logger.info(f"Daily journal reminder set for {Config.JOURNAL_REMINDER_TIME} UTC+2")
+        logger.info(f"Daily journal reminder set for {journal_reminder_hour}:{journal_reminder_minute}. Current time: {time_module.strftime('%H:%M:%S')}")
 
         console.print("[bold green]Handlers have been set up successfully![/bold green]")
         

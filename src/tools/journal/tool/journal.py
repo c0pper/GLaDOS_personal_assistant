@@ -55,12 +55,13 @@ class Journal:
     async def handle_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handles the initial /journal command."""
         chat_id = Config.MY_CHAT_ID
-        new_journal_entry_id = datetime.now().strftime('%d%m%Y')
+        message_date = update.message.date
+        new_journal_entry_id = message_date.strftime('%d%m%Y')
 
         # Initialize Pydantic model
         self.current_journal_entry = JournalEntry(
             id=new_journal_entry_id,
-            date=datetime.now(),
+            date=message_date,
             mood=0,
             people=[],
             notes=""
@@ -155,7 +156,7 @@ class Journal:
 
         elif data_type == 'no_notes':
             # Final flow: end the conversation
-            print(self.current_journal_entry)
+            logger.info(f"Final flow: end the conversation\n\n{self.current_journal_entry}")
             
             
             await self.finalize_journal_entry()
@@ -163,7 +164,7 @@ class Journal:
             await context.bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=f"Journal entry saved.\n{str(self.current_journal_entry)}"
+                text=f"""Journal entry saved.\n\nDate: {self.current_journal_entry.date.strftime('%d-%m-%Y')}\nMood: {self.current_journal_entry.mood}\nPeople: {", ".join(self.current_journal_entry.people)}\nNotes: No notes"""
             )
 
         elif data_type == 'person':
@@ -199,14 +200,19 @@ class Journal:
         message = update.message
         text = message.text
         # Check if the message is a reply to the 'notes' message
-        if message.reply_to_message and "Add a note by replying" in message.reply_to_message.text:
+        if self.current_journal_entry and message.reply_to_message and "Add a note by replying" in message.reply_to_message.text:
             self.current_journal_entry.notes = text
+            replied_message_date = message.reply_to_message.date
+            self.current_journal_entry.date = replied_message_date
 
             # self.db.update_row(self.journal_table, journal_id, {'notes': text})
             await self.finalize_journal_entry()
 
             # Final flow
-            await context.bot.send_message(chat_id=message.chat_id, text="Note added. Journal entry complete.\n\n" + str(self.current_journal_entry))
+            await context.bot.send_message(
+                chat_id=message.chat_id, 
+                text=f"""Journal entry saved.\n\nDate: {self.current_journal_entry.date.strftime('%d-%m-%Y')}\nMood: {self.current_journal_entry.mood}\nPeople: {", ".join(self.current_journal_entry.people)}\nNotes: No notes"""
+            )
             # Delete the original "Add a note" message
             await context.bot.delete_message(chat_id=message.chat_id, message_id=message.reply_to_message.message_id)
             await context.bot.delete_message(chat_id=message.chat_id, message_id=message.message_id)
