@@ -14,6 +14,7 @@ class Config:
 
     ORCHESTRATOR_AGENT_MODEL: str = "mistralai/devstral-small"
     RESPONDER_AGENT_MODEL: str = "openai/gpt-4o-mini"
+    GEMINI_AGENT_MODEL: str = "google/gemini-2.5-flash-lite"
 
     VIKUNJA_BASE_URL: str = os.environ["VIKUNJA_BASE_URL"]
     VIKUNJA_TOKEN: str = os.environ["VIKUNJA_TOKEN"]
