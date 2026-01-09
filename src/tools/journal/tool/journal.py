@@ -55,7 +55,11 @@ class Journal:
     async def handle_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handles the initial /journal command."""
         chat_id = Config.MY_CHAT_ID
-        message_date = update.message.date
+        reply_to_message = update.message.reply_to_message
+        if reply_to_message:
+            message_date = reply_to_message.date
+        else:
+            message_date = update.message.date
         new_journal_entry_id = message_date.strftime('%d%m%Y')
 
         # Initialize Pydantic model
@@ -211,7 +215,7 @@ class Journal:
             # Final flow
             await context.bot.send_message(
                 chat_id=message.chat_id, 
-                text=f"""Journal entry saved.\n\nDate: {self.current_journal_entry.date.strftime('%d-%m-%Y')}\nMood: {self.current_journal_entry.mood}\nPeople: {", ".join(self.current_journal_entry.people)}\nNotes: No notes"""
+                text=f"""Journal entry saved.\n\nDate: {self.current_journal_entry.date.strftime('%d-%m-%Y')}\nMood: {self.current_journal_entry.mood}\nPeople: {", ".join(self.current_journal_entry.people)}\nNotes: {self.current_journal_entry.notes}"""
             )
             # Delete the original "Add a note" message
             await context.bot.delete_message(chat_id=message.chat_id, message_id=message.reply_to_message.message_id)
